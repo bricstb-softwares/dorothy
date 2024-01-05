@@ -7,7 +7,7 @@ with open("requirements.txt", "r") as f:
 
 
 setuptools.setup(
-  name = 'dorothy_datasets',
+  name = 'dorothy',
   version = '1.0.2',
   license='GPL-3.0',
   description = '',
@@ -16,7 +16,7 @@ setuptools.setup(
   packages=setuptools.find_packages(),
   author = 'João Victor da Fonseca Pinto',
   author_email = 'jodafons@lps.ufrj.br,jodafons@cern.ch',
-  url = 'https://github.com/bric-tb-softwares/dorothy_datasets',
+  url = 'https://github.com/bric-tb-softwares/dorothy',
   keywords = ['framework', 'threading', 'shared resources', 'flexibility', 'python', 'online'],
   install_requires=requirements,
   classifiers=[],
