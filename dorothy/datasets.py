@@ -2,6 +2,7 @@
 __all__ = ['download', 'stratified_train_val_test_splits']
 
 import pandas as pd
+import numpy as np
 import pickle
 import requests
 import json
