@@ -1,11 +1,11 @@
 
-from dorothy_datasets import download_china_from_server
+from dorothy_datasets import download
 import os
 
 token = os.environ['DOROTHY_TOKEN']
 basepath = os.getcwd()
 
 
-download_china_from_server(token , basepath=basepath)
+download(token , 'china', basepath=basepath)
 
 

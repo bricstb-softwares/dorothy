@@ -1,271 +1,194 @@
 
-__all__ = ['download_china_from_server', 'download_imageamento_from_server']
+__all__ = ['DownloadDataset']
 
-import os, sys
 import pandas as pd
+import pickle
+import requests
+import json
+import os
+
+from PIL import Image as Img
+from PIL import ImageOps
 from tqdm import tqdm
-from colorama import init, Back, Fore
-from .stratified_kfold import stratified_train_val_test_splits
-from .utils import download_image_from_server, get_dataset_from_server, get_md5, md5_directory
-from .configs import get_dataset_config
-init(autoreset=True)
+from itertools import compress
+from sklearn.model_selection import StratifiedKFold
+
+
+
+def stratified_train_val_test_splits(df, n_folds,seed=512):
+    cv_index = {'train_val': [], 'test': []}
+    cv_train_test = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=seed)
+    sorts_train_test = []
+    for train_val_idx, test_idx in cv_train_test.split(df.values, df.target.values):
+        cv_index['test'].append(test_idx)
+        cv_index['train_val'].append(train_val_idx)
+    fold_idx = set(np.arange(0, n_folds, 1))
+    for fold in fold_idx:
+        val_idx = list(fold_idx - set([fold]))
+        print('bins selected for val: ' + str(val_idx))
+        sorts = []
+        for i in tqdm(val_idx):
+            l_val_idx = cv_index['test'][i]
+            flt = ~pd.Series(cv_index['train_val'][fold]).isin(l_val_idx).values
+            l_train_idx = np.array(list(compress(cv_index['train_val'][fold], flt)))
+            sorts.append((l_train_idx, l_val_idx, cv_index['test'][fold]))
+        sorts_train_test.append(sorts)
+    return sorts_train_test
 
 
 
 
+class Client:
 
-def download_imageamento_from_server( token, basepath=os.getcwd() ):
+    def __init__(self, token):
+        self.__header = { "Authorization": 'Token '+token}
 
-  dataset_name = 'imageamento'
-  config = get_dataset_config(dataset_name)
-  headers = { "Authorization": token}
-
-  print( Fore.BLUE + 'Downloading china dataset...' )
-
-  # template
-  d = {
-      'dataset_name': [],
-      'project_id': [],
-      'target': [],
-      'image_md5':[],
-      'image_url': [],
-      'raw_image_path':[],
-      'insertion_date': [],
-      'metadata': [],
-      'date_acquisition': [],
-      'number_reports': [],
-      }
-  
-  imagespath = basepath + '/images'
-
-  if not os.path.exists(imagespath): 
-    os.makedirs(imagespath)
-
-  images = get_dataset_from_server(dataset_name, headers)
-  print(len(images))
-  # NOTE: check 1: number of images
-  #if len(images) != config['nimages']:
-  #  print(Fore.RED + 'Number of images does not match with china dataset criterias. abort')
-  #  sys.exit(1)
+    def dataset(self, name):
+        response = requests.get('https://dorothy-image.lps.ufrj.br/images/?search={DATASET}'.format(DATASET=name), 
+                                headers=self.__header)
+        data = json.loads(response.content)
+        return Dataset(data, self.__header)
+    
 
 
-  for img in tqdm(images, desc='Downloading images...', ncols=100):
-      
-      img_path = imagespath + '/' + img['project_id']+".jpg"
-      d['dataset_name'].append(img['dataset_name'])
-      d['target'].append(False)
-      d['project_id'].append(img['project_id'])
-      d['image_url'].append(img['image_url'])
-      d['insertion_date'].append(img['insertion_date'])
-      d['metadata'].append(img['metadata'])
-      d['date_acquisition'].append(img['date_acquisition'])
-      d['number_reports'].append(img['number_reports'])
-      d['raw_image_path'].append(img_path)
+class Dataset:
 
-      if not os.path.exists(img_path):
-        download_image_from_server( img['image_url'], img_path, headers)
-      
-      d['image_md5'].append(get_md5(img_path))
+    def __init__(self, data, header ):
+        self.__header = header
+        self.__images = [Image(d, self.__header) for d in data]
 
-  # NOTE: check 2: compare the integrated images hash
-  print( Fore.GREEN + 'Checking downloaded images in (%s)...'%imagespath )
-  images_hash = md5_directory(imagespath)
-  print(images_hash)
-  #if  images_hash != config['md5_images']:
-  #  print(Fore.RED + 'Hash not match. Abort!')
-  #  # remove all images
-  #  os.system('rm -rf '+imagespath)
-  #  sys.exit(1)
+    def list_images(self):
+        return self.__images
 
 
-  print( Fore.GREEN + 'Splitting...' )
-  df = pd.DataFrame.from_dict(d)
-  df = df.sort_values('project_id')
-  splits = stratified_train_val_test_splits(df, 10, seed=config['seed'])
-  df_splitted = None
+class Image:
 
-  for test in range(10):
-    for sort in range(9):
+    def __init__(self, raw, header):
+        self.__header = header
+        self.dataset_name = raw['dataset_name']
+        self.project_id = raw['project_id']
+        self.image_url = raw['image_url']
+        self.metadata = raw['metadata']
+        self.date_acquisition = raw['date_acquisition']
+        self.insertion_date = raw['insertion_date']
+
+    def download( self, output):
+        file = open(output,"wb")
+        response = requests.get(self.image_url, headers=self.__header)
+        file.write(response.content)
+        file.close()
+
+        # fix image 
+        img = Img.open(output)
+        img = ImageOps.exif_transpose(img)
+        img.save(output)
+
+
         
-      train_index = splits[test][sort][0]
-      val_index   = splits[test][sort][1]
-      test_index  = splits[test][sort][2]
-      
-      df_train = df.iloc[train_index].copy()
-      df_train['test'] = test
-      df_train['sort'] = sort
-      df_train['type'] = 'train'
-      
-      df_val = df.iloc[val_index].copy()
-      df_val['test'] = test
-      df_val['sort'] = sort
-      df_val['type'] = 'val'       
-
-      df_test = df.iloc[test_index].copy()
-      df_test['test'] = test
-      df_test['sort'] = sort
-      df_test['type'] = 'test'       
-      if df_splitted is not None:
-          df_splitted = pd.concat((df_splitted, df_train, df_val, df_test) )
-      else:
-          df_splitted = pd.concat((df_train, df_val, df_test) )      
-      df_splitted['dataset_type'] = 'real'
-  
-
-  df_splitted.reset_index(inplace=True, drop=True)
-
-  print(len(df_splitted))
-  # NOTE: check 3: number of final rows
-  #if len(df_splitted)!=config['nimages_splitted']:
-  #  print(Fore.RED + 'Number of rows after split not match. Abort!')
-  #  # remove all images
-  #  os.system('rm -rf '+imagespath)
-  #  sys.exit(1)
-
-  print(splits)
-
-  # NOTE: check 4: hash index columns
-  df_splitted[['target', 'test', 'sort', 'type']].to_csv(basepath+'/.check_columns.csv')
-  columns_hash = get_md5(basepath+'/.check_columns.csv')
-  print(columns_hash)
-  #if columns_hash != config['md5_indexs']:
-  #  print(Fore.RED + 'Indexs hash not match. Abort!')
-  #  # remove all images
-  #  os.system('rm -rf '+imagespath)
-  #  os.system('rm -rf '+basepath+'/.check_columns.csv')
-  #  sys.exit(1)
-  
-  # Save all
-  os.system('rm -rf '+basepath+'/.check_columns.csv')
-  df_splitted.to_csv( basepath+'/'+config['output'])  
-  print(Fore.GREEN + 'Download completed! all indexs into %s'%(basepath+'/'+config['output']))
-  #sys.exit(0)
 
 
-
-def download_china_from_server( token, basepath=os.getcwd() ):
-
-  dataset_name = 'china'
-  config = get_dataset_config(dataset_name)
-  headers = { "Authorization": token}
-
-  print( Fore.BLUE + 'Downloading china dataset...' )
-
-  # template
-  d = {
-      'dataset_name': [],
-      'project_id': [],
-      'target': [],
-      'image_md5':[],
-      'image_url': [],
-      'raw_image_path':[],
-      'insertion_date': [],
-      'metadata': [],
-      'date_acquisition': [],
-      'number_reports': [],
-      }
-  
-  imagespath = basepath + '/images'
-
-  if not os.path.exists(imagespath): 
-    os.makedirs(imagespath)
-
-  images = get_dataset_from_server('china', headers)
-  # NOTE: check 1: number of images
-  #if len(images) != config['nimages']:
-  #  print(Fore.RED + 'Number of images does not match with china dataset criterias. abort')
-  #  #sys.exit(1)
+#
+# Decorate with targets
+#
 
 
-  for img in tqdm(images, desc='Downloading images...', ncols=100):
-      img_path = imagespath + '/' + img['project_id']+".png"
-      d['dataset_name'].append(img['dataset_name'])
-      d['target'].append(img['metadata']['has_tb'])
-      d['project_id'].append(img['project_id'])
-      d['image_url'].append(img['image_url'])
-      d['insertion_date'].append(img['insertion_date'])
-      d['metadata'].append(img['metadata'])
-      d['date_acquisition'].append(img['date_acquisition'])
-      d['number_reports'].append(img['number_reports'])
-      d['image_path'].append(img_path)
-      if not os.path.exists(img_path):
-        download_image_from_server( img['image_url'], img_path, headers)
-      d['image_md5'].append(get_md5(img_path))
+def china_label(metadata):
+    return metadata['has_tb']
+def imageamento_label(metadata):
+    return False
+def imageamento_anonimizado_valid_label(metadata):
+    return False
+def manaus_label(metadata):
+    return metadata['has_tb']
+def russia_label(metadata):
+    return True
 
 
+datasets = {
+                'china'                         : china_label,
+                'manaus'                        : manaus_label,
+                'c_manaus'                      : manaus_label,
+                'imageamento'                   : imageamento_label,
+                'imageamento_anonimizado_valid' : imageamento_anonimizado_valid_label,
+                'russia'                        : russia_label,
+}
+
+#
+# Dataset
+#
+
+class DownloadDataset:
+
+    """Download specified dataset from Dorothy"""
 
 
-  # NOTE: check 2: compare the integrated images hash
-  #print( Fore.GREEN + 'Checking downloaded images in (%s)...'%imagespath )
-  #images_hash = md5_directory(imagespath)
-  #print(images_hash)
-  #if  images_hash != config['md5_images']:
-  #  print(Fore.RED + 'Hash not match. Abort!')
-  #  # remove all images
-  #  #os.system('rm -rf '+imagespath)
-  #  #sys.exit(1)
+    def __init__(self,token, tests = 10, seed = 512):
+        self.service = Client(token=token)
+        self.seed = seed
+        self.tests = tests
 
-
-  print( Fore.GREEN + 'Splitting...' )
-  df = pd.DataFrame.from_dict(d)
-  df = df.sort_values('project_id')
-  splits = stratified_train_val_test_splits(df, 10, seed=config['seed'])
-  df_splitted = None
-
-  for test in range(10):
-    for sort in range(9):
         
-      train_index = splits[test][sort][0]
-      val_index   = splits[test][sort][1]
-      test_index  = splits[test][sort][2]
-      
-      df_train = df.iloc[train_index].copy()
-      df_train['test'] = test
-      df_train['sort'] = sort
-      df_train['type'] = 'train'
-      
-      df_val = df.iloc[val_index].copy()
-      df_val['test'] = test
-      df_val['sort'] = sort
-      df_val['type'] = 'val'       
 
-      df_test = df.iloc[test_index].copy()
-      df_test['test'] = test
-      df_test['sort'] = sort
-      df_test['type'] = 'test'       
-      if df_splitted is not None:
-          df_splitted = pd.concat((df_splitted, df_train, df_val, df_test) )
-      else:
-          df_splitted = pd.concat((df_train, df_val, df_test) )      
-      df_splitted['dataset_type'] = 'real'
-  
+    def download(self, dataset_name, folder, basepath=os.getcwd(), target_path=None):
 
-  df_splitted.reset_index(inplace=True, drop=True)
+        if not dataset_name in datasets.keys():
+            raise(f'Dataset ({dataset_name}) not supported.')
+
+        output_images = basepath + '/' + folder + '/images'
+        # Creating output dir    
+        os.makedirs(output_images, exist_ok=True)
+        dataset = self.service.dataset(dataset_name)
+
+        # template
+        d = {
+            'dataset_name'     : [],
+            'project_id'       : [],
+            #'target'          : [],
+            #'image_md5'       : [],
+            #'image_url'       : [],
+            'image_path'       : [],
+            'insertion_date'   : [],
+            'metadata'         : [],
+            #'date_acquisition': [],
+            #'number_reports'  : [],
+            'target'           : [],
+        }
+
+        # Download each image
+        for image in tqdm(dataset.list_images()):
+            d['dataset_name'].append(image.dataset_name)
+            d['project_id'].append(image.project_id)
+            image_path = output_images+'/%s'%(image.project_id)+'.png' 
+            if not os.path.exists(image_path):
+                image.download(image_path)
+            d['image_path'].append(  target_path+'/images/'+image.project_id+'.png' if target_path is not None else image_path)
+            d['metadata'].append(image.metadata)
+            d['insertion_date'].append(image.insertion_date)
+            d['target'].append(datasets[dataset_name](image.metadata))
+        df = pd.DataFrame(d)
+        df = df.sort_values('project_id')
+        df.to_csv(basepath+'/'+folder+'/images.csv')
+
+        with open(basepath+'/'+folder+'/'+'splits.pic','wb') as f:
+            splits = stratified_train_val_test_splits(df,self.tests,self.seed)
+            pickle.dump(splits,f)
 
 
-  # NOTE: check 3: number of final rows
-  #if len(df_splitted)!=config['nimages_splitted']:
-  #  print(Fore.RED + 'Number of rows after split not match. Abort!')
-  #  # remove all images
-  #  os.system('rm -rf '+imagespath)
-  #  sys.exit(1)
+        return df
 
 
-  # NOTE: check 4: hash index columns
-  df_splitted[['target', 'test', 'sort', 'type', 'project_id']].to_csv(basepath+'/.check_columns.csv')
-  columns_hash = get_md5(basepath+'/.check_columns.csv')
-  print(columns_hash)
-  #if columns_hash != config['md5_indexs']:
-  #  print(Fore.RED + 'Indexs hash not match. Abort!')
-  #  # remove all images
-  #  os.system('rm -rf '+imagespath)
-  #  os.system('rm -rf '+basepath+'/.check_columns.csv')
-  #  sys.exit(1)
-  
-  # Save all
-  os.system('rm -rf '+basepath+'/.check_columns.csv')
-  df_splitted.to_csv( basepath+'/'+config['output'])  
-  print(Fore.GREEN + 'Download completed! all indexs into %s'%(basepath+'/'+config['output']))
-  
 
+
+def download( token , tag , output_folder, target_path=None ):
+  api = DownloadDataset(token)
+  df  = api.download(tag, output_folder, target_path=target_path)
+  return df
+
+
+
+
+
+if __name__ == "__main__":
+    token = "b16fe0fc92088c4840a98160f3848839e68b1148"
+    df = download( token , 'china', 'test')
 
