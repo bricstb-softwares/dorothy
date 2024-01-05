@@ -1,5 +1,5 @@
 
-__all__ = ['download', 'stratified_train_val_test_splits']
+__all__ = ['download', 'stratified_train_val_test_splits', "run"]
 
 import pandas as pd
 import numpy as np
@@ -7,6 +7,8 @@ import pickle
 import requests
 import json
 import os
+import argparse
+
 
 from PIL import Image as Img
 from PIL import ImageOps
@@ -185,6 +187,21 @@ def download( tag , output_folder, token : str=os.environ.get("DOROTHY_TOKEN",""
   df  = api.download(tag, output_folder)
   return df
 
+
+
+def run():
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-t", "--tag", required=True, help="the dorothy database tag.")
+    parser.add_argument("--token",help="Configuration JSON file.",default=os.environ.get("DOROTHY_TOKEN","") )
+    parser.add_argument("--output","-o",help="the output file.",default=os.getcwd())
+    args = parser.parse_args()
+
+    if len(sys.argv)==1:
+        parser.print_help()
+        sys.exit(1)
+
+    download( args.tag, args.output, token=args.token)
 
 
 
