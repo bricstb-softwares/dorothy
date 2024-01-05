@@ -129,7 +129,7 @@ class DownloadDataset:
 
         
 
-    def download(self, dataset_name, folder, basepath=os.getcwd(), target_path=None):
+    def download(self, dataset_name, folder, basepath=os.getcwd()):
 
         if not dataset_name in datasets.keys():
             raise(f'Dataset ({dataset_name}) not supported.')
@@ -161,7 +161,7 @@ class DownloadDataset:
             image_path = output_images+'/%s'%(image.project_id)+'.png' 
             if not os.path.exists(image_path):
                 image.download(image_path)
-            d['image_path'].append(  target_path+'/images/'+image.project_id+'.png' if target_path is not None else image_path)
+            d['image_path'].append(  'images/'+image.project_id+'.png')
             d['metadata'].append(image.metadata)
             d['insertion_date'].append(image.insertion_date)
             d['target'].append(datasets[dataset_name](image.metadata))
@@ -179,9 +179,9 @@ class DownloadDataset:
 
 
 
-def download( token , tag , output_folder, target_path=None ):
+def download( tag , output_folder, token : str=os.environ.get("DOROTHY_TOKEN","") ):
   api = DownloadDataset(token)
-  df  = api.download(tag, output_folder, target_path=target_path)
+  df  = api.download(tag, output_folder)
   return df
 
 
