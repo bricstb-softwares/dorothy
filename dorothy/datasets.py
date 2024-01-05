@@ -1,5 +1,5 @@
 
-__all__ = ['DownloadDataset']
+__all__ = ['DownloadDataset', 'stratified_train_val_test_splits']
 
 import pandas as pd
 import pickle
