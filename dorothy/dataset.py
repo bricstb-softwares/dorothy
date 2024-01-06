@@ -1,5 +1,5 @@
 
-__all__ = ['download', 'stratified_train_val_test_splits', "run"]
+__all__ = ['download', 'stratified_train_val_test_splits']
 
 import pandas as pd
 import numpy as np
@@ -132,12 +132,12 @@ class DownloadDataset:
 
         
 
-    def download(self, dataset_name, folder, basepath=os.getcwd()):
+    def download(self, dataset_name, basepath):
 
         if not dataset_name in datasets.keys():
             raise(f'Dataset ({dataset_name}) not supported.')
 
-        output_images = basepath + '/' + folder + '/images'
+        output_images = basepath + '/images'
         # Creating output dir    
         os.makedirs(output_images, exist_ok=True)
         dataset = self.service.dataset(dataset_name)
@@ -170,9 +170,9 @@ class DownloadDataset:
             d['target'].append(datasets[dataset_name](image.metadata))
         df = pd.DataFrame(d)
         df = df.sort_values('project_id')
-        df.to_csv(basepath+'/'+folder+'/images.csv')
+        df.to_csv(basepath+'/images.csv')
 
-        with open(basepath+'/'+folder+'/'+'splits.pic','wb') as f:
+        with open(basepath+'/splits.pic','wb') as f:
             splits = stratified_train_val_test_splits(df,self.tests,self.seed)
             pickle.dump(splits,f)
 
@@ -189,19 +189,6 @@ def download( tag , output_folder, token : str=os.environ.get("DOROTHY_TOKEN",""
 
 
 
-def run():
-    
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-t", "--tag", required=True, help="the dorothy database tag.")
-    parser.add_argument("--token",help="Configuration JSON file.",default=os.environ.get("DOROTHY_TOKEN","") )
-    parser.add_argument("--output","-o",help="the output file.",default=os.getcwd())
-    args = parser.parse_args()
-
-    if len(sys.argv)==1:
-        parser.print_help()
-        sys.exit(1)
-
-    download( args.tag, args.output, token=args.token)
 
 
 

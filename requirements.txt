@@ -4,4 +4,6 @@ expand-folders
 tqdm
 pandarallel
 pillow
-
+rich-argparse
+requests
+loguru

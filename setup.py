@@ -22,7 +22,7 @@ setuptools.setup(
   classifiers=[],
   entry_points = {
         'console_scripts' : [
-            'download = dorothy.datasets:run',
+            'dorothy = dorothy.main:run',
         ]
     }
 )
