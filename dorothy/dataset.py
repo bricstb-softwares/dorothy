@@ -104,7 +104,7 @@ def imageamento_anonimizado_valid_label(metadata):
 def manaus_label(metadata):
     return metadata['has_tb']
 def russia_label(metadata):
-    return True
+    return metadata['has_tb']
 
 
 datasets = {
